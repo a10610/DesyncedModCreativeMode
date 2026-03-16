@@ -11,6 +11,7 @@ local function ensure_defaults()
 	if profile.CM_BotCost == nil then profile.CM_BotCost = true end
 	if profile.CM_ItemCost == nil then profile.CM_ItemCost = false end
 	if profile.CM_ProductionSpeed == nil then profile.CM_ProductionSpeed = true end
+	if profile.CM_AutoFillComponents == nil then profile.CM_AutoFillComponents = true end
 	if profile.CM_ExtraScoutsAmount == nil then profile.CM_ExtraScoutsAmount = 10 end
 	if profile.CM_PowerCellPower == nil then profile.CM_PowerCellPower = 500 end
 	if profile.CM_PowerCellRadius == nil then profile.CM_PowerCellRadius = 10 end
@@ -170,6 +171,113 @@ local function apply_research(faction)
 	end
 end
 
+-----------------------------------------------------------------------
+-- Auto-fill components monitor
+-- Scans player entities every 10 ticks (~2 seconds).
+-- For non-construction entities with empty sockets, instantly equip
+-- components so you don't have to wait for bots to deliver them.
+-----------------------------------------------------------------------
+local cm_processed_entities = {}   -- track entity keys already processed
+local cm_construction_watch = {}   -- track entities that were construction sites
+
+local function auto_fill_components_for_entity(entity)
+	if not entity or not entity.exists then return end
+	if entity.is_construction then return end -- still building
+
+	local socket_count = entity.socket_count or 0
+	if socket_count <= 0 then return end
+
+	-- Strategy 1: Check item slots for packed component items
+	-- When pasting, the game may have packed component items in inventory
+	pcall(function()
+		local slots = entity.slots
+		if slots then
+			for _, slot in ipairs(slots) do
+				if slot and slot.exists then
+					local item_id = slot.id
+					-- If slot contains a packed component (component items start with "c_")
+					if item_id and type(item_id) == "string" and string.sub(item_id, 1, 2) == "c_" then
+						pcall(function()
+							local free_socket = entity:GetFreeSocket(item_id)
+							if free_socket then
+								entity:AddComponent(item_id, free_socket)
+								pcall(function() slot:Clear() end)
+							end
+						end)
+					end
+				end
+			end
+		end
+	end)
+
+	-- Strategy 2: Check frame definition for default components
+	-- Fill empty sockets based on what the frame type normally has
+	pcall(function()
+		local frame_def = entity.def
+		if frame_def and frame_def.components then
+			for socket_idx = 1, socket_count do
+				local existing = entity:GetComponent(socket_idx)
+				if not existing then
+					local default_comp = frame_def.components[socket_idx]
+					if default_comp then
+						local comp_id = default_comp
+						if type(default_comp) == "table" then
+							comp_id = default_comp.id or default_comp[1]
+						end
+						if comp_id and type(comp_id) == "string" then
+							pcall(function()
+								entity:AddComponent(comp_id, socket_idx)
+							end)
+						end
+					end
+				end
+			end
+		end
+	end)
+end
+
+-- Delay handler for the auto-fill tick loop
+-- (Map.Delay uses Delay.FUNCNAME, not MapMsg.FUNCNAME)
+if not Delay then Delay = {} end
+function Delay.CM_AutoFillTick()
+	-- Reschedule for next check (every 10 ticks = ~2 seconds)
+	pcall(function()
+		Map.Delay("CM_AutoFillTick", 10)
+	end)
+
+	if not profile.CM_AutoFillComponents then return end
+
+	pcall(function()
+		local factions = Map.GetPlayerFactions()
+		if not factions then return end
+
+		for _, faction in ipairs(factions) do
+			pcall(function()
+				local entities = faction.entities
+				if not entities then return end
+
+				for _, entity in ipairs(entities) do
+					if entity and entity.exists then
+						local ekey = entity.key
+
+						if entity.is_construction then
+							-- Track construction sites
+							cm_construction_watch[ekey] = true
+						else
+							-- Process if just finished construction or new entity
+							if cm_construction_watch[ekey] or not cm_processed_entities[ekey] then
+								auto_fill_components_for_entity(entity)
+								cm_processed_entities[ekey] = true
+								cm_construction_watch[ekey] = nil
+							end
+						end
+					end
+				end
+			end)
+		end
+	end)
+end
+
 -- Global function callable from options UI Apply button
 function CM_ApplySettings()
 	ensure_defaults()
@@ -184,6 +292,9 @@ function CM_ApplySettings()
 			end
 		end
 	end)
+	-- Re-trigger auto-fill for all entities (clear processed cache)
+	cm_processed_entities = {}
+	cm_construction_watch = {}
 	print("[Creative Mode] Settings applied!")
 end
 
@@ -208,6 +319,16 @@ function package:init()
 
 	-- Apply all data modifications
 	apply_data_modifications()
+end
+
+function package:post_init()
+	-- Start the auto-fill component monitor
+	ensure_defaults()
+	if profile.CM_AutoFillComponents then
+		pcall(function()
+			Map.Delay("CM_AutoFillTick", 50) -- start after ~10 seconds
+		end)
+	end
 end
 
 function package:on_player_faction_spawn(faction, is_respawn, player_faction_num)
@@ -294,5 +415,12 @@ function package:on_player_faction_spawn(faction, is_respawn, player_faction_num
 	apply_research(faction)
 	if not profile.CM_Research then
 		pcall(function() faction:Unlock("t_robot_tech_basic") end)
+	end
+
+	-- Start auto-fill monitor if not already running
+	if profile.CM_AutoFillComponents then
+		pcall(function()
+			Map.Delay("CM_AutoFillTick", 50)
+		end)
 	end
 end

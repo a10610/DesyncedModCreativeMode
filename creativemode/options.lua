@@ -31,6 +31,7 @@ return UI.New([[
 			<HorizontalList><Text width=500 text="Bots for free"/><Button id=CM_BotCost on_click={on_CM_BotCost} width=32 height=32/></HorizontalList>
 			<HorizontalList><Text width=500 text="Items for free"/><Button id=CM_ItemCost on_click={on_CM_ItemCost} width=32 height=32/></HorizontalList>
 			<HorizontalList><Text width=500 text="Production Speed Boost"/><Button id=CM_ProductionSpeed on_click={on_CM_ProductionSpeed} width=32 height=32/></HorizontalList>
+			<HorizontalList><Text width=500 text="Auto-fill Components on Build"/><Button id=CM_AutoFillComponents on_click={on_CM_AutoFillComponents} width=32 height=32/></HorizontalList>
 		</VerticalList>
 
 		<Text text="Custom Values" size=15 color=title textalign=center/>
@@ -66,6 +67,7 @@ return UI.New([[
 		if profile.CM_BotCost == nil then profile.CM_BotCost = true end
 		if profile.CM_ItemCost == nil then profile.CM_ItemCost = false end
 		if profile.CM_ProductionSpeed == nil then profile.CM_ProductionSpeed = true end
+		if profile.CM_AutoFillComponents == nil then profile.CM_AutoFillComponents = true end
 
 		-- Research
 		local cm_Research = profile.CM_Research
@@ -106,6 +108,11 @@ return UI.New([[
 		local cm_ProductionSpeed = profile.CM_ProductionSpeed
 		menu.CM_ProductionSpeed.icon = cm_ProductionSpeed and "icon_small_confirm" or nil
 		menu.CM_ProductionSpeed.active = cm_ProductionSpeed or false
+
+		-- AutoFillComponents
+		local cm_AutoFillComponents = profile.CM_AutoFillComponents
+		menu.CM_AutoFillComponents.icon = cm_AutoFillComponents and "icon_small_confirm" or nil
+		menu.CM_AutoFillComponents.active = cm_AutoFillComponents or false
 
 		-- InputText values
 		menu.CM_ExtraScoutsAmount.text = profile.CM_ExtraScoutsAmount
@@ -162,6 +169,12 @@ return UI.New([[
 		chk.icon = value and "icon_small_confirm" or nil
 		chk.active = value
 		profile.CM_ProductionSpeed = value
+	end,
+	on_CM_AutoFillComponents = function(menu, chk)
+		local value = not chk.active
+		chk.icon = value and "icon_small_confirm" or nil
+		chk.active = value
+		profile.CM_AutoFillComponents = value
 	end,
 
 	-- Values --------------------------------------
