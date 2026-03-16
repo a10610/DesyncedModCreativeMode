@@ -105,6 +105,9 @@ local function apply_data_modifications()
 						if frame.construction_recipe.ingredients then
 							frame.construction_recipe.ingredients = {}
 						end
+						if frame.construction_recipe.components then
+							frame.construction_recipe.components = {}
+						end
 						if frame.construction_recipe.ticks ~= nil then
 							frame.construction_recipe.ticks = 1
 						end
@@ -179,6 +182,7 @@ end
 -----------------------------------------------------------------------
 local cm_processed_entities = {}   -- track entity keys already processed
 local cm_construction_watch = {}   -- track entities that were construction sites
+local cm_construction_supplied = {} -- track construction entities already supplied with components
 
 local function auto_fill_components_for_entity(entity)
 	if not entity or not entity.exists then return end
@@ -236,6 +240,59 @@ local function auto_fill_components_for_entity(entity)
 	end)
 end
 
+-- Supply components to a construction entity so it can complete building.
+-- When blueprints include components, the construction site waits for them
+-- to be delivered. This function provides them directly.
+local function supply_construction_components(entity)
+	if not entity or not entity.exists then return end
+	if not entity.is_construction then return end
+
+	local socket_count = entity.socket_count or 0
+	if socket_count <= 0 then return end
+
+	-- Try to add required components as items to the construction site
+	-- so the game's construction system can consume them and complete building
+	pcall(function()
+		local frame_def = entity.def
+		if frame_def and frame_def.components then
+			for socket_idx = 1, socket_count do
+				local comp_def = frame_def.components[socket_idx]
+				if comp_def then
+					local comp_id = comp_def
+					if type(comp_def) == "table" then
+						comp_id = comp_def.id or comp_def[1]
+					end
+					if comp_id and type(comp_id) == "string" then
+						pcall(function() entity:AddItem(comp_id, 1) end)
+						pcall(function() entity:AddComponent(comp_id, socket_idx) end)
+					end
+				end
+			end
+		end
+	end)
+
+	-- Also try moving any packed component items from inventory to sockets
+	pcall(function()
+		local slots = entity.slots
+		if slots then
+			for _, slot in ipairs(slots) do
+				if slot and slot.exists then
+					local item_id = slot.id
+					if item_id and type(item_id) == "string" and string.sub(item_id, 1, 2) == "c_" then
+						pcall(function()
+							local free_socket = entity:GetFreeSocket(item_id)
+							if free_socket then
+								entity:AddComponent(item_id, free_socket)
+								pcall(function() slot:Clear() end)
+							end
+						end)
+					end
+				end
+			end
+		end
+	end)
+end
+
 -- Delay handler for the auto-fill tick loop
 -- (Map.Delay uses Delay.FUNCNAME, not MapMsg.FUNCNAME)
 if not Delay then Delay = {} end
@@ -263,12 +320,18 @@ function Delay.CM_AutoFillTick()
 						if entity.is_construction then
 							-- Track construction sites
 							cm_construction_watch[ekey] = true
+							-- Supply components to help complete construction
+							if not cm_construction_supplied[ekey] then
+								supply_construction_components(entity)
+								cm_construction_supplied[ekey] = true
+							end
 						else
 							-- Process if just finished construction or new entity
 							if cm_construction_watch[ekey] or not cm_processed_entities[ekey] then
 								auto_fill_components_for_entity(entity)
 								cm_processed_entities[ekey] = true
 								cm_construction_watch[ekey] = nil
+								cm_construction_supplied[ekey] = nil
 							end
 						end
 					end
@@ -295,6 +358,7 @@ function CM_ApplySettings()
 	-- Re-trigger auto-fill for all entities (clear processed cache)
 	cm_processed_entities = {}
 	cm_construction_watch = {}
+	cm_construction_supplied = {}
 	print("[Creative Mode] Settings applied!")
 end
 
