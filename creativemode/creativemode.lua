@@ -1,26 +1,29 @@
 local package = ...
 local profile = Game.GetProfile()
 
-function package:setup_scenario(settings)
+-- Ensure all profile defaults exist (before any if-checks)
+local function ensure_defaults()
+	if profile.CM_Research == nil then profile.CM_Research = true end
+	if profile.CM_BuildingCost == nil then profile.CM_BuildingCost = true end
+	if profile.CM_ExtraScouts == nil then profile.CM_ExtraScouts = true end
+	if profile.CM_ScoutCell == nil then profile.CM_ScoutCell = true end
+	if profile.CM_ComponentCost == nil then profile.CM_ComponentCost = true end
+	if profile.CM_BotCost == nil then profile.CM_BotCost = true end
+	if profile.CM_ItemCost == nil then profile.CM_ItemCost = false end
+	if profile.CM_ProductionSpeed == nil then profile.CM_ProductionSpeed = true end
+	if profile.CM_ExtraScoutsAmount == nil then profile.CM_ExtraScoutsAmount = 10 end
+	if profile.CM_PowerCellPower == nil then profile.CM_PowerCellPower = 500 end
+	if profile.CM_PowerCellRadius == nil then profile.CM_PowerCellRadius = 10 end
+	if profile.CM_ScoutViewRadius == nil then profile.CM_ScoutViewRadius = 10 end
+	if profile.CM_SpeedMultiplier == nil then profile.CM_SpeedMultiplier = 1.0 end
 end
 
-function package:on_world_spawn()
-end
+-- Apply data table modifications (items, components, frames)
+-- This is called from init() and also from the Apply button
+local function apply_data_modifications()
+	ensure_defaults()
 
-function package:init()
-	-- Silence tutorial popups (safe)
-	pcall(function()
-		if data.fx then
-			if data.fx.fx_ui_WINDOW_TUT_NEXT then
-				data.fx.fx_ui_WINDOW_TUT_NEXT.sound = "creativemode/silence.ogg"
-			end
-			if data.fx.fx_ui_WINDOW_TUT_POPOUT then
-				data.fx.fx_ui_WINDOW_TUT_POPOUT.sound = "creativemode/silence.ogg"
-			end
-		end
-	end)
-
-	-- Free items (clear ingredients, set production time to 1)
+	-- Free items (clear ingredients)
 	if profile.CM_ItemCost then
 		pcall(function()
 			for k, item in pairs(data.items) do
@@ -28,9 +31,26 @@ function package:init()
 					if item.production_recipe.ingredients then
 						item.production_recipe.ingredients = {}
 					end
+				end
+			end
+		end)
+	end
+
+	-- Production speed for items
+	if profile.CM_ProductionSpeed then
+		pcall(function()
+			local speed = tonumber(profile.CM_SpeedMultiplier) or 1.0
+			if speed < 0.01 then speed = 0.01 end
+			for k, item in pairs(data.items) do
+				if item and type(item) == "table" and item.production_recipe and type(item.production_recipe) == "table" then
 					if item.production_recipe.producers then
-						for p, _ in pairs(item.production_recipe.producers) do
-							item.production_recipe.producers[p] = 1
+						for p, ticks in pairs(item.production_recipe.producers) do
+							if type(ticks) == "number" and ticks > 0 then
+								local new_ticks = math.max(1, math.floor(ticks / speed))
+								item.production_recipe.producers[p] = new_ticks
+							else
+								item.production_recipe.producers[p] = 1
+							end
 						end
 					end
 				end
@@ -38,7 +58,7 @@ function package:init()
 		end)
 	end
 
-	-- Free components
+	-- Free components (clear ingredients)
 	if profile.CM_ComponentCost then
 		pcall(function()
 			for k, component in pairs(data.components) do
@@ -46,9 +66,26 @@ function package:init()
 					if component.production_recipe.ingredients then
 						component.production_recipe.ingredients = {}
 					end
+				end
+			end
+		end)
+	end
+
+	-- Production speed for components
+	if profile.CM_ProductionSpeed then
+		pcall(function()
+			local speed = tonumber(profile.CM_SpeedMultiplier) or 1.0
+			if speed < 0.01 then speed = 0.01 end
+			for k, component in pairs(data.components) do
+				if component and type(component) == "table" and component.production_recipe and type(component.production_recipe) == "table" then
 					if component.production_recipe.producers then
-						for p, _ in pairs(component.production_recipe.producers) do
-							component.production_recipe.producers[p] = 1
+						for p, ticks in pairs(component.production_recipe.producers) do
+							if type(ticks) == "number" and ticks > 0 then
+								local new_ticks = math.max(1, math.floor(ticks / speed))
+								component.production_recipe.producers[p] = new_ticks
+							else
+								component.production_recipe.producers[p] = 1
+							end
 						end
 					end
 				end
@@ -57,8 +94,10 @@ function package:init()
 	end
 
 	-- Free buildings and/or free bots
-	if profile.CM_BuildingCost or profile.CM_BotCost then
+	if profile.CM_BuildingCost or profile.CM_BotCost or profile.CM_ProductionSpeed then
 		pcall(function()
+			local speed = tonumber(profile.CM_SpeedMultiplier) or 1.0
+			if speed < 0.01 then speed = 0.01 end
 			for k, frame in pairs(data.frames) do
 				if frame and type(frame) == "table" then
 					if profile.CM_BuildingCost and frame.construction_recipe and type(frame.construction_recipe) == "table" then
@@ -73,9 +112,17 @@ function package:init()
 						if frame.production_recipe.ingredients then
 							frame.production_recipe.ingredients = {}
 						end
+					end
+					-- Production speed for bots/frames
+					if profile.CM_ProductionSpeed and frame.production_recipe and type(frame.production_recipe) == "table" then
 						if frame.production_recipe.producers then
-							for p, _ in pairs(frame.production_recipe.producers) do
-								frame.production_recipe.producers[p] = 1
+							for p, ticks in pairs(frame.production_recipe.producers) do
+								if type(ticks) == "number" and ticks > 0 then
+									local new_ticks = math.max(1, math.floor(ticks / speed))
+									frame.production_recipe.producers[p] = new_ticks
+								else
+									frame.production_recipe.producers[p] = 1
+								end
 							end
 						end
 					end
@@ -109,6 +156,58 @@ function package:init()
 			end
 		end
 	end)
+end
+
+-- Apply research unlock to a faction
+local function apply_research(faction)
+	if not faction then return end
+	if profile.CM_Research then
+		pcall(function()
+			for k, tech in pairs(data.techs) do
+				pcall(function() faction:Unlock(k) end)
+			end
+		end)
+	end
+end
+
+-- Global function callable from options UI Apply button
+function CM_ApplySettings()
+	ensure_defaults()
+	-- Re-apply data table modifications
+	apply_data_modifications()
+	-- Re-apply research to all player factions
+	pcall(function()
+		local factions = Map.GetPlayerFactions()
+		if factions then
+			for _, faction in ipairs(factions) do
+				apply_research(faction)
+			end
+		end
+	end)
+	print("[Creative Mode] Settings applied!")
+end
+
+function package:setup_scenario(settings)
+end
+
+function package:on_world_spawn()
+end
+
+function package:init()
+	-- Silence tutorial popups (safe)
+	pcall(function()
+		if data.fx then
+			if data.fx.fx_ui_WINDOW_TUT_NEXT then
+				data.fx.fx_ui_WINDOW_TUT_NEXT.sound = "creativemode/silence.ogg"
+			end
+			if data.fx.fx_ui_WINDOW_TUT_POPOUT then
+				data.fx.fx_ui_WINDOW_TUT_POPOUT.sound = "creativemode/silence.ogg"
+			end
+		end
+	end)
+
+	-- Apply all data modifications
+	apply_data_modifications()
 end
 
 function package:on_player_faction_spawn(faction, is_respawn, player_faction_num)
@@ -192,13 +291,8 @@ function package:on_player_faction_spawn(faction, is_respawn, player_faction_num
 	end
 
 	-- Research unlocked
-	if profile.CM_Research then
-		pcall(function()
-			for k, tech in pairs(data.techs) do
-				pcall(function() faction:Unlock(k) end)
-			end
-		end)
-	else
+	apply_research(faction)
+	if not profile.CM_Research then
 		pcall(function() faction:Unlock("t_robot_tech_basic") end)
 	end
 end
