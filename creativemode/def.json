@@ -1,11 +1,11 @@
 {
     "id": "creativemode",
     "name": "Creative Mode",
-    "version_name": "0.8",
-    "version_code": 8,
-    "author": "lukask97",
-    "homepage": "https://github.com/lukask97/DesyncedModCreativeMode",
-    "description": "A few creative functions",
+    "version_name": "1.0",
+    "version_code": 10,
+    "author": "lukask97, a10610",
+    "homepage": "https://github.com/a10610/DesyncedModCreativeMode",
+    "description": "Creative Mode for Desynced - free buildings, components, bots, items, unlocked research, and customizable settings",
     "options": "options.lua",
     "packages": {
         "CreativeMode": {
